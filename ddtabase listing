@@ -1,0 +1,149 @@
+-- ========================================
+-- Aktifkan UUID
+-- ========================================
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- ========================================
+-- TABEL: Categories
+-- ========================================
+CREATE TABLE categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ========================================
+-- TABEL: Subcategories
+-- ========================================
+CREATE TABLE subcategories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ========================================
+-- TABEL: Listings
+-- ========================================
+CREATE TABLE listings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+    subcategory_id UUID REFERENCES subcategories(id) ON DELETE SET NULL,
+
+    -- Jenis transaksi
+    transaction_type VARCHAR(20) CHECK (transaction_type IN ('Sell', 'Buy', 'Rent', 'Exchange', 'Any')) DEFAULT 'Sell',
+
+    -- Kondisi barang
+    item_condition VARCHAR(20) CHECK (item_condition IN ('New', 'Used', 'Any')) DEFAULT 'Any',
+
+    -- Status iklan
+    status VARCHAR(20) CHECK (status IN ('Active', 'Sold', 'Preorder')) DEFAULT 'Active',
+
+    -- Premium ads
+    is_premium BOOLEAN DEFAULT FALSE,
+
+    -- Lokasi
+    latitude DECIMAL(9,6),
+    longitude DECIMAL(9,6),
+
+    -- Harga dasar
+    price NUMERIC(12,2),
+
+    -- User pemilik (FK ke user-service, external)
+    user_id UUID NOT NULL,
+
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ========================================
+-- TABEL: Listing Media (gambar / video)
+-- ========================================
+CREATE TABLE listing_media (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    listing_id UUID NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+    media_url TEXT NOT NULL,
+    media_type VARCHAR(20) CHECK (media_type IN ('image', 'video')) DEFAULT 'image',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ========================================
+-- TABEL: Listing Comments
+-- ========================================
+CREATE TABLE listing_comments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    listing_id UUID NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL, -- FK ke user-service
+    comment TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ========================================
+-- TABEL: Listing Stats (view, like, report)
+-- ========================================
+CREATE TABLE listing_stats (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    listing_id UUID NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+    views INT DEFAULT 0,
+    likes INT DEFAULT 0,
+    reports INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ========================================
+-- TABEL: Listing Bids (penawaran harga)
+-- ========================================
+CREATE TABLE listing_bids (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    listing_id UUID NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL, -- FK ke user-service
+    bid_amount NUMERIC(12,2) NOT NULL,
+    status VARCHAR(20) CHECK (status IN ('Pending', 'Accepted', 'Rejected')) DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ========================================
+-- INDEXES
+-- ========================================
+CREATE INDEX idx_listings_category ON listings(category_id);
+CREATE INDEX idx_listings_subcategory ON listings(subcategory_id);
+CREATE INDEX idx_listings_status ON listings(status);
+CREATE INDEX idx_listings_premium ON listings(is_premium);
+CREATE INDEX idx_bids_listing ON listing_bids(listing_id);
+CREATE INDEX idx_bids_user ON listing_bids(user_id);
+
+-- ========================================
+-- TRIGGERS: Auto-update updated_at
+-- ========================================
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+   NEW.updated_at = NOW();
+   RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Trigger untuk listings
+CREATE TRIGGER trg_update_listings_updated_at
+BEFORE UPDATE ON listings
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- Trigger untuk listing_stats
+CREATE TRIGGER trg_update_stats_updated_at
+BEFORE UPDATE ON listing_stats
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- Trigger untuk listing_bids
+CREATE TRIGGER trg_update_bids_updated_at
+BEFORE UPDATE ON listing_bids
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
