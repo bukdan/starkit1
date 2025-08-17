@@ -1,0 +1,9 @@
+// user-service/handler/auth_handler.go
+func MeHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value("user").(*model.User)
+	if !ok || user == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	json.NewEncoder(w).Encode(user)
+}

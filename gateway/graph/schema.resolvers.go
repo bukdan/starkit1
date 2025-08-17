@@ -1,0 +1,117 @@
+package graph
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+
+	"gateway/graph/generated"
+	"gateway/graph/model"
+)
+
+type Resolver struct{}
+
+func (r *mutationResolver) Register(ctx context.Context, input model.RegisterInput) (*model.User, error) {
+	url := os.Getenv("USER_SERVICE_URL") + "/auth/register"
+
+	body, _ := json.Marshal(input)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return nil, errors.New("failed to register user")
+	}
+
+	var user model.User
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *mutationResolver) Login(ctx context.Context, input model.LoginInput) (*model.AuthPayload, error) {
+	url := os.Getenv("USER_SERVICE_URL") + "/auth/login"
+
+	body, _ := json.Marshal(input)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("invalid login")
+	}
+
+	var auth model.AuthPayload
+	if err := json.NewDecoder(resp.Body).Decode(&auth); err != nil {
+		return nil, err
+	}
+	return &auth, nil
+}
+
+func (r *mutationResolver) GoogleLogin(ctx context.Context, token string) (*model.AuthPayload, error) {
+	url := os.Getenv("USER_SERVICE_URL") + "/auth/google"
+
+	payload := map[string]string{"token": token}
+	body, _ := json.Marshal(payload)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("failed google login")
+	}
+
+	var auth model.AuthPayload
+	if err := json.NewDecoder(resp.Body).Decode(&auth); err != nil {
+		return nil, err
+	}
+	return &auth, nil
+}
+
+func (r *queryResolver) Me(ctx context.Context) (*model.User, error) {
+	req, _ := http.NewRequest("GET", os.Getenv("USER_SERVICE_URL")+"/auth/me", nil)
+
+	// ambil JWT dari context (middleware sudah inject)
+	token := ctx.Value("authToken")
+	if token != nil {
+		req.Header.Set("Authorization", "Bearer "+token.(string))
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("unauthorized")
+	}
+
+	var user model.User
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// Mutation resolver
+func (r *Resolver) Mutation() generated.MutationResolver { return &mutationResolver{r} }
+
+type mutationResolver struct{ *Resolver }
+
+// Query resolver
+func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
+
+type queryResolver struct{ *Resolver }
